@@ -35,7 +35,7 @@ sequenceDiagram
     participant H as Human
     participant S as Session
     View->>C: Step()
-    C->>H: RequestMove(current)（武裝、回傳通道）
+    C->>H: RequestMove(current)（非阻塞、回傳通道）
     Note over View: 玩家點擊棋格
     View->>C: CurrentInteractive().Tap(square)
     H->>H: 選子/高亮；點到合法落點→送入通道
