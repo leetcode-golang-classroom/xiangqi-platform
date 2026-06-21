@@ -29,6 +29,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/opentype"
+
 	"github.com/yuanyu90221/xiangqi-platform/core/board"
 	"github.com/yuanyu90221/xiangqi-platform/core/notation"
 	"github.com/yuanyu90221/xiangqi-platform/core/play"
@@ -40,10 +43,12 @@ import (
 //go:embed assets/DroidSansFallbackFull.ttf
 var cjkFontTTF []byte
 
-// pieceFace 為棋子中文字所用字型面；uiFace 為選單等小字。
+// 字型：pieceFace 棋子中文字、uiFace 介面中文字（皆嵌入 CJK 字型）；
+// latinFace 為 ASCII／符號專用（Go Regular，字形較 CJK fallback 清晰）。
 var (
 	pieceFace *text.GoTextFace
 	uiFace    *text.GoTextFace
+	latinFace *text.GoXFace
 )
 
 func init() {
@@ -53,6 +58,16 @@ func init() {
 	}
 	pieceFace = &text.GoTextFace{Source: src, Size: 34}
 	uiFace = &text.GoTextFace{Source: src, Size: 16}
+
+	ft, err := opentype.Parse(goregular.TTF)
+	if err != nil {
+		log.Fatalf("載入英文字型失敗: %v", err)
+	}
+	face, err := opentype.NewFace(ft, &opentype.FaceOptions{Size: 16, DPI: 72, Hinting: 0})
+	if err != nil {
+		log.Fatalf("建立英文字型失敗: %v", err)
+	}
+	latinFace = text.NewGoXFace(face)
 }
 
 const (
@@ -485,12 +500,30 @@ func resultZh(r string) string {
 	}
 }
 
-// drawText 以 uiFace 於 (x,y) 左上對齊繪製文字（支援中文）。
+// drawText 於 (x,y) 左上對齊繪製混合文字：ASCII／符號以 latinFace（較清晰）、
+// 中文等以 uiFace 繪製，逐段切換並累加寬度，避免 CJK fallback 字型的英文字形問題。
 func drawText(screen *ebiten.Image, s string, x, y float64, clr color.Color) {
-	op := &text.DrawOptions{}
-	op.GeoM.Translate(x, y)
-	op.ColorScale.ScaleWithColor(clr)
-	text.Draw(screen, s, uiFace, op)
+	runes := []rune(s)
+	cx := x
+	for i := 0; i < len(runes); {
+		ascii := runes[i] < 0x80
+		j := i + 1
+		for j < len(runes) && (runes[j] < 0x80) == ascii {
+			j++
+		}
+		seg := string(runes[i:j])
+		var face text.Face = uiFace
+		if ascii {
+			face = latinFace
+		}
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(cx, y)
+		op.ColorScale.ScaleWithColor(clr)
+		text.Draw(screen, seg, face, op)
+		w, _ := text.Measure(seg, face, 0)
+		cx += w
+		i = j
+	}
 }
 
 // drawMenu 繪製獨立的載入選單畫面（不繪製棋盤）：標題列 + 棋譜清單 + 操作列。
