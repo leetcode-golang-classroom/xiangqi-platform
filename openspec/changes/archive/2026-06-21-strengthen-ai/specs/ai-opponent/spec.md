@@ -1,18 +1,4 @@
-# ai-opponent Specification
-
-## Purpose
-TBD - created by archiving change add-ai-opponent. Update Purpose after archive.
-## Requirements
-### Requirement: 對手抽象介面
-系統 SHALL 提供 `Player` 介面，以 `RequestMove(game)` **非同步**取步：回傳一個通道，當該對手決定一步時送出之，統一本地人類、AI 與遠端對手。對局迴圈 MUST 僅依賴此介面而不在意對手種類；`RequestMove` 僅於對局未結束且輪到該方時呼叫。AI 之同步核心 `SelectMove` 於對局已結束時 SHALL 回報錯誤。
-
-#### Scenario: 由介面非同步取得走法
-- **WHEN** 對未結束盤面呼叫某 `Player` 的 `RequestMove`
-- **THEN** 其通道最終送出一步當前盤面的合法走法
-
-#### Scenario: AI 同步核心於對局結束回報錯誤
-- **WHEN** 對已結束（將死/和棋等）盤面呼叫 AI 的 `SelectMove`
-- **THEN** 回報錯誤且不回傳走法
+## MODIFIED Requirements
 
 ### Requirement: AI 搜尋與評估
 系統 SHALL 提供實作 `Player` 的 `AI`，以 negamax + alpha-beta 剪枝搜尋至指定深度選步。評估函數 SHALL 以子力價值為主，並 SHALL 加入**位置因素**（各棋子的位置價值表 piece-square table 與簡易王安全）；位置因素之權重 MUST 遠小於子力價值，不得使「明顯得子」或「將死」之判斷反轉。到達搜尋深度上限時，系統 SHALL 進行**靜默搜尋（quiescence）**：沿吃子序列延伸搜尋至無吃子可走（安定）後再以靜態評估計分，以消除視界效應（送子/壞兌）。終局將死/困斃 SHALL 視為對行棋方的必負（必勝），和棋為 0。選步 SHALL 可重現：**全新** AI 於同一盤面與深度的首次選步回傳固定走法（同一 AI 於對局中重訪同一盤面時可變招，見「重複局面變招」）。
@@ -59,6 +45,8 @@ TBD - created by archiving change add-ai-opponent. Update Purpose after archive.
 - **WHEN** 盤面存在明顯領先（超過 ε）的唯一最佳手（如可白吃一子）
 - **THEN** 無論造訪幾次或是否啟用隨機，AI 皆選該唯一最佳手
 
+## ADDED Requirements
+
 ### Requirement: 走法排序
 為提升 alpha-beta 剪枝效率以支援更深搜尋，AI SHALL 於搜尋各節點對候選著手排序：吃子著手優先（依 MVV-LVA，受吃子價值高者優先、攻擊子價值低者優先），其餘著手次之。排序 SHALL 僅影響剪枝效率與遍歷順序，不得改變 negamax 之最終分值結果；同分時 SHALL 以固定規則（UCCI 字串）排序以維持可重現。
 
@@ -69,4 +57,3 @@ TBD - created by archiving change add-ai-opponent. Update Purpose after archive.
 #### Scenario: 排序不改變選步結果
 - **WHEN** 對同一盤面以相同深度選步
 - **THEN** 不論排序與否，回傳之最佳分相同（排序僅加速，不改變結論）
-

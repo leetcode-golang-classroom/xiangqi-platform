@@ -140,7 +140,8 @@ func (g *Game) start(humanColor board.Color) {
 	if g.difficulty < player.Easy {
 		g.difficulty = player.Medium
 	}
-	ai := player.NewAI(g.difficulty)
+	// 以開局時間為種子啟用隨機選步：每局開局與應對皆有變化，不易被同一套路破解。
+	ai := player.NewAI(g.difficulty).Seed(time.Now().UnixNano())
 	// 棋譜中以難度標明 AI 一方（如「電腦（普通）」），人類一方為「玩家」。
 	redName, blackName := "玩家", ai.Name()
 	if humanColor == board.Black {

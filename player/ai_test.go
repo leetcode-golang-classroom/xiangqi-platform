@@ -112,6 +112,19 @@ func TestAIUniqueBestUnaffectedByRepeat(t *testing.T) {
 	}
 }
 
+func TestSeededAIVariesOpening(t *testing.T) {
+	// 自開局起，不同種子的 AI 應能給出不同（但皆合法）的開局著手，避免每局同一套路。
+	g := rules.NewGame()
+	seen := map[string]bool{}
+	for _, seed := range []int64{1, 2, 3, 4, 5, 6, 7, 8} {
+		m, err := player.NewAI(player.Easy).Seed(seed).SelectMove(g)
+		require.NoError(t, err)
+		assert.True(t, slices.Contains(g.LegalMoves(), m), "隨機開局仍須合法")
+		seen[m.String()] = true
+	}
+	assert.Greater(t, len(seen), 1, "不同種子應產生多種開局，不應每局同一招")
+}
+
 func TestFreshAIFirstMoveReproducible(t *testing.T) {
 	g := rules.NewGame()
 	m1, err := player.NewAI(player.Medium).SelectMove(g)
@@ -119,6 +132,57 @@ func TestFreshAIFirstMoveReproducible(t *testing.T) {
 	m2, err := player.NewAI(player.Medium).SelectMove(g)
 	require.NoError(t, err)
 	assert.Equal(t, m1.String(), m2.String(), "全新 AI 同盤面首手應可重現")
+}
+
+func TestAIAvoidsLosingCapture(t *testing.T) {
+	// 紅車 a5 可橫吃黑兵 e5，但黑車 e9 守在 e 線，吃後必被回吃淨虧一車。
+	// 以深度 1 凸顯靜默搜尋：若無 quiesce，葉節點靜態評估會誤判吃兵得分；
+	// 有 quiesce 則看穿回吃 → AI 不選送子吃法。
+	g, err := rules.FromFEN("4rk3/9/9/9/R3p4/9/9/9/9/3K5 w - - 0 1")
+	require.NoError(t, err)
+	require.True(t, slices.Contains(g.LegalMoves(), mustMove("a5e5")), "前提：a5e5 為合法吃子")
+
+	ai := player.NewAI(1) // 深度 1：葉節點即進入靜默搜尋
+	m, err := ai.SelectMove(g)
+	require.NoError(t, err)
+	assert.NotEqual(t, "a5e5", m.String(), "靜默搜尋應看穿回吃，避免送車吃兵")
+}
+
+func TestPSTPrefersDevelopment(t *testing.T) {
+	// 等子力下，紅馬 b0 可走 a2/c2/d1；位置表以 c2（中央前進）最高 → 全新 AI 應選 b0c2。
+	g, err := rules.FromFEN("3k5/9/9/9/9/9/9/9/9/1N2K4 w - - 0 1")
+	require.NoError(t, err)
+
+	m, err := player.NewAI(player.Easy).SelectMove(g)
+	require.NoError(t, err)
+	assert.Equal(t, "b0c2", m.String(), "位置評估應偏好較佳發展位置")
+}
+
+func TestNearBestStillUniqueOnTactics(t *testing.T) {
+	// 得子（吃一車）遠超 ε 容差，即使啟用隨機也必為唯一選擇，不被 near-best 變招稀釋。
+	g, err := rules.FromFEN("5k3/9/9/9/r8/9/9/9/9/R2K5 w - - 0 1")
+	require.NoError(t, err)
+
+	for _, seed := range []int64{1, 7, 42} {
+		m, err := player.NewAI(player.Medium).Seed(seed).SelectMove(g)
+		require.NoError(t, err)
+		assert.Equal(t, "a0a5", m.String(), "戰術得子手不受 ε 容差/隨機影響")
+	}
+}
+
+func TestAINameReflectsDifficulty(t *testing.T) {
+	assert.Contains(t, player.NewAI(player.Easy).Name(), "簡單")
+	assert.Contains(t, player.NewAI(player.Medium).Name(), "普通")
+	assert.Contains(t, player.NewAI(player.Hard).Name(), "困難")
+}
+
+// mustMove 解析 UCCI 走法，測試輔助用。
+func mustMove(s string) board.Move {
+	m, err := board.ParseUCCI(s)
+	if err != nil {
+		panic(err)
+	}
+	return m
 }
 
 // 編譯期確認介面方法簽章與 board.Move 對應。
