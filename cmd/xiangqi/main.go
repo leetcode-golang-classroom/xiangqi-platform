@@ -74,9 +74,17 @@ const (
 	margin  = 48
 	cell    = 60
 	radius  = 26
-	headerH = 88                              // 頂部資訊／操作列高度（棋盤下移騰出此區）
-	winW    = margin*2 + cell*(board.Files-1) // 9 條縱線
-	winH    = headerH + margin*2 + cell*(board.Ranks-1)
+	headerH = 88                       // 頂部資訊／操作列高度（棋盤下移騰出此區）
+	boardW  = cell * (board.Files - 1) // 棋盤格寬（縱線 a..i，9 條）
+	// 視窗寬度刻意大於棋盤：容納復盤提示／跳手清單等較長的單行文字，避免超出畫面右緣。
+	winW      = 760
+	winH      = headerH + margin*2 + cell*(board.Ranks-1)
+	boardLeft = (winW - boardW) / 2 // 棋盤水平置中後的左緣（file 0 的中心 x）
+
+	autoplayTicks = 42 // 自動播放間隔（幀）：60 TPS 下約 0.7 秒/手
+
+	mlTop  = 52 // 跳手清單首列 y
+	mlRowH = 26 // 跳手清單列高
 )
 
 var (
@@ -126,6 +134,12 @@ type Game struct {
 	replay      bool
 	replayer    *record.Replayer
 	loadedID    string
+
+	// 復盤增強：自動播放、跳手清單
+	autoplay bool // 自動逐手播放中
+	tick     int  // 自動播放的幀計數
+	moveList bool // 跳手清單（記譜）覆蓋層開啟中
+	moveSel  int  // 跳手清單目前選取的盤面索引
 }
 
 func newGameState(store *storage.FileStore) *Game {
@@ -156,6 +170,8 @@ func (g *Game) start(humanColor board.Color) {
 	g.menu = false
 	g.replay = false
 	g.replayer = nil
+	g.autoplay = false
+	g.moveList = false
 }
 
 // screenOf 回傳某棋格中心的螢幕座標。翻轉時 file/rank 同時鏡射（180° 旋轉），
@@ -166,14 +182,14 @@ func (g *Game) screenOf(sq board.Square) (float32, float32) {
 		file = board.Files - 1 - file
 		rank = board.Ranks - 1 - rank
 	}
-	x := margin + file*cell
+	x := boardLeft + file*cell
 	y := headerH + margin + (board.Ranks-1-rank)*cell
 	return float32(x), float32(y)
 }
 
 // squareAt 將螢幕座標轉成最接近的棋格（含翻轉）；超出容差回傳 InvalidSquare。
 func (g *Game) squareAt(px, py int) board.Square {
-	dfile := (px - margin + cell/2) / cell
+	dfile := (px - boardLeft + cell/2) / cell
 	dtop := (py - headerH - margin + cell/2) / cell // 由上往下第幾列
 	if dfile < 0 || dfile >= board.Files || dtop < 0 || dtop >= board.Ranks {
 		return board.InvalidSquare
@@ -273,18 +289,88 @@ func (g *Game) updateMenu() error {
 	return nil
 }
 
-// updateReplay 處理復盤模式輸入：←/→ 逐手、L 回清單、Esc 返回對局。
+// updateReplay 處理復盤模式輸入：←/→ 逐手、Home/End 首末、Space 自動播放、
+// Tab 開跳手清單、L 回載入清單、Esc 返回對局。
 func (g *Game) updateReplay() error {
+	if g.moveList {
+		return g.updateMoveList()
+	}
+	// 自動播放：每 autoplayTicks 幀前進一手，抵達末位自動停止。
+	if g.autoplay {
+		g.tick++
+		if g.tick >= autoplayTicks {
+			g.tick = 0
+			if !g.replayer.Next() {
+				g.autoplay = false
+			}
+		}
+	}
 	switch {
 	case inpututil.IsKeyJustPressed(ebiten.KeyArrowRight):
 		g.replayer.Next()
+		g.autoplay = false
 	case inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft):
 		g.replayer.Prev()
+		g.autoplay = false
+	case inpututil.IsKeyJustPressed(ebiten.KeyHome):
+		g.replayer.Seek(0)
+		g.autoplay = false
+	case inpututil.IsKeyJustPressed(ebiten.KeyEnd):
+		g.replayer.Seek(g.replayer.Len() - 1)
+		g.autoplay = false
+	case inpututil.IsKeyJustPressed(ebiten.KeySpace):
+		g.toggleAutoplay()
+	case inpututil.IsKeyJustPressed(ebiten.KeyTab):
+		g.openMoveList()
 	case inpututil.IsKeyJustPressed(ebiten.KeyL):
 		g.openMenu()
 	case inpututil.IsKeyJustPressed(ebiten.KeyEscape):
 		g.replay = false
+		g.autoplay = false
 		g.status = ""
+	}
+	return nil
+}
+
+// toggleAutoplay 切換自動播放；若由停轉播且已在末位，則自動回到起始重播。
+func (g *Game) toggleAutoplay() {
+	g.autoplay = !g.autoplay
+	g.tick = 0
+	if g.autoplay && g.replayer.Index() >= g.replayer.Len()-1 {
+		g.replayer.Seek(0)
+	}
+}
+
+// openMoveList 開啟跳手清單覆蓋層，預設選取目前盤面所在手。
+func (g *Game) openMoveList() {
+	g.moveList = true
+	g.moveSel = g.replayer.Index()
+	g.autoplay = false
+}
+
+// updateMoveList 處理跳手清單輸入：↑/↓ 選擇、Enter 或滑鼠點擊跳至該手、Tab/Esc 返回。
+func (g *Game) updateMoveList() error {
+	n := g.replayer.Len()
+	switch {
+	case inpututil.IsKeyJustPressed(ebiten.KeyArrowDown):
+		if g.moveSel < n-1 {
+			g.moveSel++
+		}
+	case inpututil.IsKeyJustPressed(ebiten.KeyArrowUp):
+		if g.moveSel > 0 {
+			g.moveSel--
+		}
+	case inpututil.IsKeyJustPressed(ebiten.KeyEnter):
+		g.replayer.Seek(g.moveSel)
+		g.moveList = false
+	case inpututil.IsKeyJustPressed(ebiten.KeyTab), inpututil.IsKeyJustPressed(ebiten.KeyEscape):
+		g.moveList = false
+	}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if ply, ok := g.moveListRowAt(ebiten.CursorPosition()); ok {
+			g.replayer.Seek(ply)
+			g.moveList = false
+		}
 	}
 	return nil
 }
@@ -349,6 +435,10 @@ func (g *Game) boardFEN() string {
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.menu {
 		g.drawMenu(screen)
+		return
+	}
+	if g.replay && g.moveList {
+		g.drawMoveList(screen)
 		return
 	}
 	screen.Fill(colBg)
@@ -497,11 +587,13 @@ func (g *Game) drawStatus(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, 0, float32(winW), headerH, colHeader, false)
 
 	if g.replay {
-		drawText(screen, fmt.Sprintf("復盤　%d / %d　棋譜：%s", g.replayer.Index(), g.replayer.Len()-1, g.loadedID), margin, 10, colLine)
-		drawText(screen, "左/右鍵：逐手　　L：載入清單　　Esc：返回對局　　Q：結束", margin, 34, colLine)
-		if g.status != "" {
-			drawText(screen, g.status, margin, 58, colRed)
+		drawText(screen, fmt.Sprintf("復盤　%d / %d　棋譜：%s", g.replayer.Index(), g.replayer.Len()-1, g.loadedID), margin, 8, colLine)
+		drawText(screen, "最後一手："+g.currentMoveLabel(), margin, 32, colLine)
+		hint := "左/右鍵：逐手　Home/End：首末　Space：自動播放　Tab：跳手清單　L：清單　Esc：返回"
+		if g.autoplay {
+			hint = "自動播放中（Space：暫停）　Tab：跳手清單　Esc：返回"
 		}
+		drawText(screen, hint, margin, 56, colLine)
 		return
 	}
 
@@ -608,6 +700,93 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	// 操作列
 	vector.DrawFilledRect(screen, 0, float32(footerY-4), float32(winW), 32, colMenuBar, false)
 	drawText(screen, "上/下鍵：選擇    Enter：載入    Esc：取消    Q：結束", margin, float64(footerY), colWhite)
+}
+
+// currentMoveLabel 回傳目前盤面對應「最後一手」的中文記譜標籤（起始局面則回傳提示）。
+func (g *Game) currentMoveLabel() string {
+	idx := g.replayer.Index()
+	if idx <= 0 {
+		return "起始局面"
+	}
+	return fmt.Sprintf("第 %d 手　%s%s", idx, moveSideZh(idx), g.replayer.Notations()[idx-1])
+}
+
+// moveSideZh 依手序回傳走子方（1-based：奇數紅、偶數黑）。
+func moveSideZh(ply int) string {
+	if ply%2 == 1 {
+		return "紅 "
+	}
+	return "黑 "
+}
+
+// moveListView 回傳跳手清單的捲動起點、可見列數與操作列 y，供繪製與點擊命中共用。
+func (g *Game) moveListView() (start, maxVisible, footerY int) {
+	footerY = winH - 28
+	maxVisible = (footerY - mlTop) / mlRowH
+	if g.moveSel >= maxVisible {
+		start = g.moveSel - maxVisible + 1
+	}
+	return start, maxVisible, footerY
+}
+
+// moveListRowAt 將螢幕座標映射為跳手清單的盤面索引；不在任何列上則回傳 false。
+func (g *Game) moveListRowAt(px, py int) (int, bool) {
+	_ = px
+	start, maxVisible, _ := g.moveListView()
+	if py < mlTop-3 {
+		return 0, false
+	}
+	row := (py - (mlTop - 3)) / mlRowH
+	if row < 0 || row >= maxVisible {
+		return 0, false
+	}
+	ply := start + row
+	if ply < 0 || ply >= g.replayer.Len() {
+		return 0, false
+	}
+	return ply, true
+}
+
+// drawMoveList 繪製跳手清單覆蓋層（不繪棋盤）：每列為一個盤面索引與其中文記譜，
+// 目前選取列高亮、目前游標所在手以較暗底色標示。可上下選擇或點擊跳轉。
+func (g *Game) drawMoveList(screen *ebiten.Image) {
+	screen.Fill(colMenuBg)
+
+	vector.DrawFilledRect(screen, 0, 0, float32(winW), 40, colMenuBar, false)
+	drawText(screen, "跳手清單　棋譜："+g.loadedID, margin, 12, colWhite)
+	drawText(screen, fmt.Sprintf("%d/%d", g.moveSel, g.replayer.Len()-1),
+		float64(winW)-float64(margin)-40, 12, colWhite)
+
+	notations := g.replayer.Notations()
+	start, maxVisible, footerY := g.moveListView()
+	n := g.replayer.Len()
+	end := start + maxVisible
+	if end > n {
+		end = n
+	}
+	cur := g.replayer.Index()
+	for i := start; i < end; i++ {
+		y := mlTop + (i-start)*mlRowH
+		txtCol := colMenuFg
+		switch {
+		case i == g.moveSel:
+			vector.DrawFilledRect(screen, 8, float32(y-3), float32(winW-16), mlRowH, colSelect, false)
+			txtCol = colWhite
+		case i == cur:
+			vector.DrawFilledRect(screen, 8, float32(y-3), float32(winW-16), mlRowH, colMenuBar, false)
+		}
+		label, side := "起始局面", ""
+		if i > 0 {
+			label, side = notations[i-1], moveSideZh(i)
+		}
+		drawText(screen, fmt.Sprintf("%3d.", i), margin, float64(y), txtCol)
+		drawText(screen, side, float64(margin)+44, float64(y), txtCol)
+		drawText(screen, label, float64(margin)+76, float64(y), txtCol)
+	}
+
+	vector.DrawFilledRect(screen, 0, float32(footerY-4), float32(winW), 32, colMenuBar, false)
+	drawText(screen, "上/下鍵：選擇　Enter/點擊：跳至該手　Tab/Esc：返回　Q：結束",
+		margin, float64(footerY), colWhite)
 }
 
 // reasonZh 將結果原因轉中文。

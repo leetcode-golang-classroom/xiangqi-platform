@@ -42,6 +42,23 @@ func TestReplayerNextPrevClamp(t *testing.T) {
 	assert.Equal(t, 0, r.Index())
 }
 
+func TestReplayerNotations(t *testing.T) {
+	rec := sampleRecord()
+	r, err := record.NewReplayer(rec)
+	require.NoError(t, err)
+
+	ns := r.Notations()
+	assert.Len(t, ns, len(rec.Moves), "記譜數應等於走法數")
+	assert.Len(t, ns, r.Len()-1, "記譜數應為盤面數減一")
+	for i, s := range ns {
+		assert.NotEmpty(t, s, "第 %d 手記譜不應為空", i+1)
+	}
+	// 應與 MovesInChinese 對棋譜的逐手轉換一致。
+	want, err := record.MovesInChinese(rec)
+	require.NoError(t, err)
+	assert.Equal(t, want, ns)
+}
+
 func TestReplayerSeekClampAndCurrent(t *testing.T) {
 	rec := sampleRecord()
 	r, err := record.NewReplayer(rec)
