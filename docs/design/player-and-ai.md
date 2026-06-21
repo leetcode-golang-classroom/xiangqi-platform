@@ -32,15 +32,15 @@ Interactive interface {
 ### 循序圖：統一對局迴圈（對手多型）
 ```mermaid
 sequenceDiagram
-    participant Loop as Controller.Step
+    participant Ctl as Controller.Step
     participant P as Player(介面)
     participant S as Session
     loop 每幀，直到對局結束
-        Loop->>P: RequestMove(current)
+        Ctl->>P: RequestMove(current)
         Note right of P: Human→等點擊<br/>AI→背景搜尋<br/>Remote→等WebSocket
-        P-->>Loop: move（經通道，完成時）
-        Loop->>S: Play(move)
-        S-->>Loop: 換手 → 下一個 Player
+        P-->>Ctl: move（經通道，完成時）
+        Ctl->>S: Play(move)
+        S-->>Ctl: 換手 → 下一個 Player
     end
 ```
 
@@ -58,18 +58,18 @@ sequenceDiagram
 ### 循序圖：AI 思考一步（背景搜尋）
 ```mermaid
 sequenceDiagram
-    participant Loop as Controller.Step
+    participant Ctl as Controller.Step
     participant AI as AI
     participant G as goroutine
     participant Eng as RuleEngine
-    Loop->>AI: RequestMove(game)
+    Ctl->>AI: RequestMove(game)
     AI->>G: go SelectMove(game)
-    AI-->>Loop: 通道（立即返回，不阻塞）
+    AI-->>Ctl: 通道（立即返回，不阻塞）
     loop negamax + alpha-beta（背景）
         G->>Eng: LegalMoves / ApplyMove 模擬
         Eng-->>G: 子盤面 → 評估（PieceAt 子力差）
     end
-    G-->>Loop: bestMove（經通道，後續幀 Step 收到並套用）
+    G-->>Ctl: bestMove（經通道，後續幀 Step 收到並套用）
 ```
 
 ## 人機對戰選邊（GUI）
