@@ -64,18 +64,18 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant Loop as Controller.Step
+    participant Ctl as Controller.Step
     participant P as Player
     participant S as Session
     loop 直到結束
-        Loop->>P: RequestMove(game)
+        Ctl->>P: RequestMove(game)
         Note right of P: Human→等UI輸入<br/>AI→搜尋<br/>Remote→等WebSocket
-        P-->>Loop: move（經通道）
-        Loop->>S: Play(move)
+        P-->>Ctl: move（經通道）
+        Ctl->>S: Play(move)
         alt 合法
-            S-->>Loop: newGame（換手）+ Result
+            S-->>Ctl: newGame（換手）+ Result
         else 非法
-            S-->>Loop: Error（狀態不變）
+            S-->>Ctl: Error（狀態不變）
         end
     end
 ```
