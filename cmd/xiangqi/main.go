@@ -19,7 +19,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
+	"flag"
 	"fmt"
 	"image/color"
 	"log"
@@ -32,6 +34,7 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 
+	"github.com/yuanyu90221/xiangqi-platform/client"
 	"github.com/yuanyu90221/xiangqi-platform/core/board"
 	"github.com/yuanyu90221/xiangqi-platform/core/notation"
 	"github.com/yuanyu90221/xiangqi-platform/core/play"
@@ -116,16 +119,40 @@ func abs(f float32) float32 {
 	return f
 }
 
-// Game 為 Ebiten 遊戲：持有對局協調器並繪製之。可自由選邊（執紅/執黑），
-// 並支援對局結束自動存譜與由 records/ 載入復盤。
+// 線上連線狀態。
+const (
+	connOffline    = iota // 離線（人機）模式，不使用連線狀態
+	connConnecting        // 連線中／等待對手配對
+	connPlaying           // 已配對，對局進行中
+	connError             // 連線或配對失敗
+)
+
+// matchResult 為背景連線 goroutine 的結果：傳輸、己方執色或錯誤。
+type matchResult struct {
+	tr    *client.WSTransport
+	color string
+	err   error
+}
+
+// Game 為 Ebiten 遊戲：持有對局驅動器（離線 Controller／線上 OnlineController）並繪製之。
+// 可自由選邊（執紅/執黑），並支援對局結束自動存譜與由 records/ 載入復盤。
 type Game struct {
-	c          *play.Controller
+	drv        play.Driver
 	store      *storage.FileStore
 	humanColor board.Color // 人類執方
 	difficulty int         // AI 難度（player.Easy/Medium/Hard）
 	flip       bool        // 棋盤翻轉：人類執黑時讓己方在下方
 	status     string      // 暫態訊息（如存檔路徑）
 	savedOver  bool        // 本局結束時是否已自動存譜
+
+	// 線上對戰模式
+	online     bool
+	serverURL  string
+	connState  int
+	connErr    string
+	conn       *client.WSTransport
+	matchCh    chan matchResult
+	cancelDial context.CancelFunc
 
 	// 載入選單 / 復盤模式
 	menu        bool
@@ -162,7 +189,7 @@ func (g *Game) start(humanColor board.Color) {
 		redName, blackName = ai.Name(), "玩家"
 	}
 	c, _ := play.VsComputer(redName, blackName, humanColor, ai)
-	g.c = c
+	g.drv = c
 	g.humanColor = humanColor
 	g.flip = humanColor == board.Black
 	g.status = ""
@@ -172,6 +199,62 @@ func (g *Game) start(humanColor board.Color) {
 	g.replayer = nil
 	g.autoplay = false
 	g.moveList = false
+}
+
+// newOnlineGame 建立線上對戰遊戲狀態：尚未配對，啟動背景連線後於主迴圈輪詢結果。
+func newOnlineGame(store *storage.FileStore, serverURL string) *Game {
+	g := &Game{store: store, online: true, serverURL: serverURL}
+	g.startDial()
+	return g
+}
+
+// startDial 於背景 goroutine 連向伺服器並等待配對，結果經 matchCh 回傳主迴圈。
+// 連線採可取消的 context，視窗關閉時由 cancelDial 中止。
+func (g *Game) startDial() {
+	ctx, cancel := context.WithCancel(context.Background())
+	g.cancelDial = cancel
+	g.matchCh = make(chan matchResult, 1)
+	g.connState = connConnecting
+	g.connErr = ""
+	url := g.serverURL
+	ch := g.matchCh
+	go func() {
+		tr, err := client.Dial(ctx, url)
+		if err != nil {
+			ch <- matchResult{err: err}
+			return
+		}
+		color, err := tr.WaitMatched(ctx)
+		ch <- matchResult{tr: tr, color: color, err: err}
+	}()
+}
+
+// pollMatch 非阻塞檢查背景連線結果；配對成功後以己方執色建立 OnlineController 並開始對局。
+func (g *Game) pollMatch() {
+	select {
+	case r := <-g.matchCh:
+		if r.err != nil {
+			g.connState = connError
+			g.connErr = r.err.Error()
+			return
+		}
+		g.conn = r.tr
+		humanColor := board.Red
+		if r.color == "black" {
+			humanColor = board.Black
+		}
+		redName, blackName := "你", "對手"
+		if humanColor == board.Black {
+			redName, blackName = "對手", "你"
+		}
+		oc, _ := play.NewOnlineController(redName, blackName, humanColor, r.tr)
+		g.drv = oc
+		g.humanColor = humanColor
+		g.flip = humanColor == board.Black
+		g.savedOver = false
+		g.connState = connPlaying
+	default:
+	}
 }
 
 // screenOf 回傳某棋格中心的螢幕座標。翻轉時 file/rank 同時鏡射（180° 旋轉），
@@ -219,31 +302,40 @@ func (g *Game) Update() error {
 		return g.updateReplay()
 	}
 
-	// 統一迴圈：向當前 Player 請求一步、完成即套用。AI 的背景搜尋與套用皆在
-	// Controller.Step 內非同步處理，本層不需自行管理 goroutine。
-	g.c.Step()
+	// 線上模式：尚未配對成局時，輪詢背景連線結果，期間不推進對局。
+	if g.online && g.connState != connPlaying {
+		g.pollMatch()
+		if g.connState != connPlaying {
+			return nil
+		}
+	}
+
+	// 統一迴圈：向當前 Player 請求一步、完成即套用。離線 AI 的背景搜尋／線上伺服器確認
+	// 走法的套用皆在 Driver.Step 內非同步處理，本層不需自行管理 goroutine。
+	g.drv.Step()
 
 	// 對局結束 → 自動存譜一次，確保棋譜必有產出。
-	over := g.c.Outcome().Over
+	over := g.drv.Outcome().Over
 	if over && !g.savedOver {
 		g.savedOver = true
 		g.save(true)
 	}
 
-	// 全域可用鍵：開新局、選邊、載入、存譜（終局後仍可用）。
+	// 全域可用鍵：載入、存譜（終局後仍可用）。離線專屬鍵（開新局／選邊／難度／悔棋／認輸）
+	// 在線上模式停用——對局由伺服器權威主導，執色由配對決定。
 	switch {
-	case inpututil.IsKeyJustPressed(ebiten.KeyN):
-		g.start(g.humanColor) // 同陣營重新開局
-	case inpututil.IsKeyJustPressed(ebiten.Key1):
-		g.start(board.Red) // 執紅（先手）
-	case inpututil.IsKeyJustPressed(ebiten.Key2):
-		g.start(board.Black) // 執黑（後手）
-	case inpututil.IsKeyJustPressed(ebiten.KeyD):
-		g.cycleDifficulty() // 切換難度（並以同陣營開新局）
 	case inpututil.IsKeyJustPressed(ebiten.KeyS):
 		g.save(false)
 	case inpututil.IsKeyJustPressed(ebiten.KeyL):
 		g.openMenu()
+	case !g.online && inpututil.IsKeyJustPressed(ebiten.KeyN):
+		g.start(g.humanColor) // 同陣營重新開局
+	case !g.online && inpututil.IsKeyJustPressed(ebiten.Key1):
+		g.start(board.Red) // 執紅（先手）
+	case !g.online && inpututil.IsKeyJustPressed(ebiten.Key2):
+		g.start(board.Black) // 執黑（後手）
+	case !g.online && inpututil.IsKeyJustPressed(ebiten.KeyD):
+		g.cycleDifficulty() // 切換難度（並以同陣營開新局）
 	}
 
 	// 終局後鎖定對局操作：不接受悔棋／認輸／點擊走子。
@@ -251,15 +343,20 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-	switch {
-	case inpututil.IsKeyJustPressed(ebiten.KeyU):
-		g.c.Undo()
-	case inpututil.IsKeyJustPressed(ebiten.KeyR):
-		g.c.Resign()
+	// 悔棋／認輸僅離線（人機）模式可用。
+	if !g.online {
+		if ctl, ok := g.drv.(*play.Controller); ok {
+			switch {
+			case inpututil.IsKeyJustPressed(ebiten.KeyU):
+				ctl.Undo()
+			case inpututil.IsKeyJustPressed(ebiten.KeyR):
+				ctl.Resign()
+			}
+		}
 	}
 
 	// 人類回合：把左鍵點擊餵給當前互動式玩家。
-	if iv, ok := g.c.CurrentInteractive(); ok {
+	if iv, ok := g.drv.CurrentInteractive(); ok {
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			if sq := g.squareAt(ebiten.CursorPosition()); sq != board.InvalidSquare {
 				iv.Tap(sq)
@@ -378,7 +475,7 @@ func (g *Game) updateMoveList() error {
 // save 將當前棋譜匯出為 xiangqi-record-v1 JSON（存於 records/）。auto 為對局結束自動存譜。
 func (g *Game) save(auto bool) {
 	id := "game-" + time.Now().Format("20060102-150405")
-	if err := g.store.Save(id, g.c.Session().Record()); err != nil {
+	if err := g.store.Save(id, g.drv.Session().Record()); err != nil {
 		g.status = "存檔失敗: " + err.Error()
 		return
 	}
@@ -429,7 +526,7 @@ func (g *Game) boardFEN() string {
 	if g.replay && g.replayer != nil {
 		return g.replayer.Current().ToFEN()
 	}
-	return g.c.Current().ToFEN()
+	return g.drv.Current().ToFEN()
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -439,6 +536,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	if g.replay && g.moveList {
 		g.drawMoveList(screen)
+		return
+	}
+	// 線上模式尚未配對成局：顯示連線／配對／錯誤畫面，不繪棋盤。
+	if g.online && g.connState != connPlaying {
+		g.drawConnecting(screen)
 		return
 	}
 	screen.Fill(colBg)
@@ -535,7 +637,7 @@ func (g *Game) drawHints(screen *ebiten.Image) {
 	if g.replay {
 		return
 	}
-	iv, ok := g.c.CurrentInteractive()
+	iv, ok := g.drv.CurrentInteractive()
 	if !ok {
 		return
 	}
@@ -597,25 +699,53 @@ func (g *Game) drawStatus(screen *ebiten.Image) {
 		return
 	}
 
-	out := g.c.Outcome()
+	out := g.drv.Outcome()
 	var status string
 	statusCol := colLine
 	switch {
 	case out.Over:
 		status = "棋局結束"
 		statusCol = colRed
-	case g.c.Thinking():
+	case g.online && g.drv.Thinking():
+		status = "等待對手走子…"
+	case g.online && g.drv.Turn() == g.humanColor:
+		status = "輪到：你（" + colorName(g.humanColor) + "）"
+	case g.drv.Thinking():
 		status = "電腦思考中…"
-	case g.c.Turn() == g.humanColor:
+	case g.drv.Turn() == g.humanColor:
 		status = "輪到：你（" + colorName(g.humanColor) + "）"
 	default:
 		status = "輪到：電腦（" + colorName(g.humanColor.Opposite()) + "）"
 	}
 	drawText(screen, status, margin, 10, statusCol)
-	drawText(screen, fmt.Sprintf("你執%s　難度：%s　手數：%d", colorName(g.humanColor), difficultyName(g.difficulty), len(g.c.Session().Record().Moves)), margin, 34, colLine)
-	drawText(screen, "1 執紅  2 執黑  D 難度  N 新局  U 悔棋  R 認輸  S 存譜  L 載入  Q 結束", margin, 58, colLine)
+	if g.online {
+		drawText(screen, fmt.Sprintf("線上對戰　你執%s　手數：%d", colorName(g.humanColor), len(g.drv.Session().Record().Moves)), margin, 34, colLine)
+		drawText(screen, "點選棋子→點落點走子　S 存譜  L 載入  Q 結束", margin, 58, colLine)
+	} else {
+		drawText(screen, fmt.Sprintf("你執%s　難度：%s　手數：%d", colorName(g.humanColor), difficultyName(g.difficulty), len(g.drv.Session().Record().Moves)), margin, 34, colLine)
+		drawText(screen, "1 執紅  2 執黑  D 難度  N 新局  U 悔棋  R 認輸  S 存譜  L 載入  Q 結束", margin, 58, colLine)
+	}
 	if g.status != "" {
 		drawText(screen, g.status, margin, 72, colRed)
+	}
+}
+
+// drawConnecting 繪製線上模式尚未成局時的連線／配對／錯誤畫面（不繪棋盤）。
+func (g *Game) drawConnecting(screen *ebiten.Image) {
+	screen.Fill(colMenuBg)
+	vector.DrawFilledRect(screen, 0, 0, float32(winW), 40, colMenuBar, false)
+	drawText(screen, "線上對戰", margin, 12, colWhite)
+
+	cy := float64(winH) / 2
+	switch g.connState {
+	case connError:
+		centerText(screen, "連線失敗", float64(winW)/2, cy-20, colWhite)
+		drawText(screen, g.connErr, margin, cy+10, colWhite)
+		drawText(screen, "按 Q 結束", margin, cy+40, colWhite)
+	default: // connConnecting
+		centerText(screen, "等待對手配對中…", float64(winW)/2, cy-20, colWhite)
+		drawText(screen, "伺服器："+g.serverURL, margin, cy+10, colWhite)
+		drawText(screen, "按 Q 結束", margin, cy+40, colWhite)
 	}
 }
 
@@ -824,7 +954,7 @@ func (g *Game) drawBanner(screen *ebiten.Image) {
 	if g.replay {
 		return
 	}
-	out := g.c.Outcome()
+	out := g.drv.Outcome()
 	if !out.Over {
 		return
 	}
@@ -849,13 +979,34 @@ func (g *Game) drawBanner(screen *ebiten.Image) {
 func (g *Game) Layout(int, int) (int, int) { return winW, winH }
 
 func main() {
+	online := flag.Bool("online", false, "線上對戰模式（連向權威伺服器與另一名玩家對局）")
+	server := flag.String("server", "ws://localhost:8080", "線上模式的 WebSocket 伺服器位址")
+	flag.Parse()
+
 	store, err := storage.NewFileStore("records")
 	if err != nil {
 		log.Fatalf("初始化棋譜儲存失敗: %v", err)
 	}
 	ebiten.SetWindowSize(winW, winH)
-	ebiten.SetWindowTitle("中國象棋 — 人機對戰")
-	if err := ebiten.RunGame(newGameState(store)); err != nil {
+
+	var g *Game
+	if *online {
+		ebiten.SetWindowTitle("中國象棋 — 線上對戰")
+		g = newOnlineGame(store, *server)
+	} else {
+		ebiten.SetWindowTitle("中國象棋 — 人機對戰")
+		g = newGameState(store)
+	}
+
+	err = ebiten.RunGame(g)
+	// 視窗關閉後收尾：中止背景連線、關閉傳輸。
+	if g.cancelDial != nil {
+		g.cancelDial()
+	}
+	if g.conn != nil {
+		_ = g.conn.Close()
+	}
+	if err != nil {
 		log.Fatal(err)
 	}
 }
