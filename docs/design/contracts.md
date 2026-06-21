@@ -30,7 +30,24 @@
 
 ## 4. WebSocket 協定
 
-JSON envelope `{ type, gameId, payload }`。訊息型別見 [online-play.md](online-play.md)。
+JSON envelope `{ type, gameId, payload }`（實作：`server.Envelope`）。走法一律以 UCCI 表示。
+編解碼為可逆往返；未知 `type` 或損壞 JSON 一律回報錯誤（不靜默忽略、不 panic）。
+
+**型別與 payload 形狀**
+
+| 方向 | type | payload 欄位 |
+|---|---|---|
+| C→S | `join` | （無；重連時於頂層帶 `gameId`） |
+| C→S | `move` | `move`（UCCI，如 `"h2e2"`） |
+| C→S | `resign` | （無） |
+| S→C | `matched` | `color`（`"red"`/`"black"`）、`initialFen` |
+| S→C | `move_applied` | `move`（UCCI）、`fen`、`turn`（`"red"`/`"black"`） |
+| S→C | `game_over` | `result`（`"red"`/`"black"`/`"draw"`）、`reason` |
+| S→C | `error` | `reason`（僅回送出方，不廣播） |
+| S→C | `state_sync` | `fen`、`moves`（UCCI 字串陣列，重連還原用） |
+
+頂層 `gameId`：配對後由 `matched` 帶回，客戶端後續 `move`／重連 `join` 須帶同一值。
+權威性：伺服器以 `RuleEngine` 驗證每一步，僅當前回合方合法走法才套用並向雙方廣播。
 
 ## 5. RuleEngine 介面
 
