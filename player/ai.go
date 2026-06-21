@@ -46,8 +46,20 @@ func NewAI(difficulty int) *AI {
 	return &AI{Depth: difficulty}
 }
 
-// Name 回傳對手名稱。
-func (a *AI) Name() string { return "電腦" }
+// Name 回傳對手名稱，內含難度標籤（如「電腦（普通）」），供 GUI／棋譜辨識棋力。
+func (a *AI) Name() string { return "電腦（" + difficultyLabel(a.Depth) + "）" }
+
+// difficultyLabel 將搜尋深度轉成中文難度標籤。
+func difficultyLabel(depth int) string {
+	switch {
+	case depth <= Easy:
+		return "簡單"
+	case depth >= Hard:
+		return "困難"
+	default:
+		return "普通"
+	}
+}
 
 // RequestMove 非同步取步：於背景 goroutine 搜尋，完成後將走法送入通道。
 // 滿足 play.Player 介面。僅於對局未結束時呼叫（否則搜尋無著手、通道不送出）。

@@ -9,7 +9,7 @@
 //
 // 人機對戰：可自由選邊——鍵盤 1 執紅、2 執黑（己方永遠在畫面下方，棋盤自動翻轉）。
 // 互動：滑鼠左鍵點選棋子→點合法落點走子；U 悔棋、R 認輸、N 同陣營新局、
-// S 匯出棋譜（存成 xiangqi-record-v1 JSON）。AI 那一方的搜尋於背景 goroutine 進行
+// S 匯出棋譜（存成 xiangqi-record-v1 JSON）、Q 結束遊戲。AI 那一方的搜尋於背景 goroutine 進行
 // （讀取不可變盤面快照），完成後於主迴圈套用，避免畫面凍結。
 // 對局協調委由純邏輯控制器 core/play.Controller。
 //
@@ -114,6 +114,7 @@ type Game struct {
 	c          *play.Controller
 	store      *storage.FileStore
 	humanColor board.Color // 人類執方
+	difficulty int         // AI 難度（player.Easy/Medium/Hard）
 	flip       bool        // 棋盤翻轉：人類執黑時讓己方在下方
 	status     string      // 暫態訊息（如存檔路徑）
 	savedOver  bool        // 本局結束時是否已自動存譜
@@ -128,15 +129,24 @@ type Game struct {
 }
 
 func newGameState(store *storage.FileStore) *Game {
-	g := &Game{store: store}
-	g.start(board.Red) // 預設執紅
+	g := &Game{store: store, difficulty: player.Medium}
+	g.start(board.Red) // 預設執紅、普通難度
 	return g
 }
 
 // start 以指定人類執方開新局，並依執方決定棋盤翻轉（己方永遠在下方）。
+// AI 強度取自 g.difficulty。
 func (g *Game) start(humanColor board.Color) {
-	ai := player.NewAI(player.Medium)
-	c, _ := play.VsComputer("紅", "黑", humanColor, ai)
+	if g.difficulty < player.Easy {
+		g.difficulty = player.Medium
+	}
+	ai := player.NewAI(g.difficulty)
+	// 棋譜中以難度標明 AI 一方（如「電腦（普通）」），人類一方為「玩家」。
+	redName, blackName := "玩家", ai.Name()
+	if humanColor == board.Black {
+		redName, blackName = ai.Name(), "玩家"
+	}
+	c, _ := play.VsComputer(redName, blackName, humanColor, ai)
 	g.c = c
 	g.humanColor = humanColor
 	g.flip = humanColor == board.Black
@@ -181,6 +191,10 @@ func (g *Game) squareAt(px, py int) board.Square {
 }
 
 func (g *Game) Update() error {
+	// 全域結束遊戲：任何模式下按 Q 皆優雅關閉視窗。
+	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+		return ebiten.Termination
+	}
 	if g.menu {
 		return g.updateMenu()
 	}
@@ -207,6 +221,8 @@ func (g *Game) Update() error {
 		g.start(board.Red) // 執紅（先手）
 	case inpututil.IsKeyJustPressed(ebiten.Key2):
 		g.start(board.Black) // 執黑（後手）
+	case inpututil.IsKeyJustPressed(ebiten.KeyD):
+		g.cycleDifficulty() // 切換難度（並以同陣營開新局）
 	case inpututil.IsKeyJustPressed(ebiten.KeyS):
 		g.save(false)
 	case inpututil.IsKeyJustPressed(ebiten.KeyL):
@@ -449,13 +465,39 @@ func colorName(c board.Color) string {
 	return "黑"
 }
 
+// difficultyName 將難度值轉中文標籤。
+func difficultyName(d int) string {
+	switch d {
+	case player.Easy:
+		return "簡單"
+	case player.Hard:
+		return "困難"
+	default:
+		return "普通"
+	}
+}
+
+// cycleDifficulty 依序切換難度（簡單→普通→困難→簡單），並以同陣營重新開局套用。
+func (g *Game) cycleDifficulty() {
+	switch g.difficulty {
+	case player.Easy:
+		g.difficulty = player.Medium
+	case player.Medium:
+		g.difficulty = player.Hard
+	default:
+		g.difficulty = player.Easy
+	}
+	g.start(g.humanColor)
+	g.status = "難度：" + difficultyName(g.difficulty)
+}
+
 func (g *Game) drawStatus(screen *ebiten.Image) {
 	// 頂部資訊列背景（與棋盤明顯區隔）。所有中文皆以 CJK 字型繪製，避免亂碼。
 	vector.DrawFilledRect(screen, 0, 0, float32(winW), headerH, colHeader, false)
 
 	if g.replay {
 		drawText(screen, fmt.Sprintf("復盤　%d / %d　棋譜：%s", g.replayer.Index(), g.replayer.Len()-1, g.loadedID), margin, 10, colLine)
-		drawText(screen, "左/右鍵：逐手　　L：載入清單　　Esc：返回對局", margin, 34, colLine)
+		drawText(screen, "左/右鍵：逐手　　L：載入清單　　Esc：返回對局　　Q：結束", margin, 34, colLine)
 		if g.status != "" {
 			drawText(screen, g.status, margin, 58, colRed)
 		}
@@ -477,8 +519,8 @@ func (g *Game) drawStatus(screen *ebiten.Image) {
 		status = "輪到：電腦（" + colorName(g.humanColor.Opposite()) + "）"
 	}
 	drawText(screen, status, margin, 10, statusCol)
-	drawText(screen, fmt.Sprintf("你執%s　手數：%d", colorName(g.humanColor), len(g.c.Session().Record().Moves)), margin, 34, colLine)
-	drawText(screen, "1 執紅  2 執黑  N 新局  U 悔棋  R 認輸  S 存譜  L 載入", margin, 58, colLine)
+	drawText(screen, fmt.Sprintf("你執%s　難度：%s　手數：%d", colorName(g.humanColor), difficultyName(g.difficulty), len(g.c.Session().Record().Moves)), margin, 34, colLine)
+	drawText(screen, "1 執紅  2 執黑  D 難度  N 新局  U 悔棋  R 認輸  S 存譜  L 載入  Q 結束", margin, 58, colLine)
 	if g.status != "" {
 		drawText(screen, g.status, margin, 72, colRed)
 	}
@@ -564,7 +606,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 
 	// 操作列
 	vector.DrawFilledRect(screen, 0, float32(footerY-4), float32(winW), 32, colMenuBar, false)
-	drawText(screen, "上/下鍵：選擇      Enter：載入      Esc：取消", margin, float64(footerY), colWhite)
+	drawText(screen, "上/下鍵：選擇    Enter：載入    Esc：取消    Q：結束", margin, float64(footerY), colWhite)
 }
 
 // reasonZh 將結果原因轉中文。
@@ -620,8 +662,8 @@ func (g *Game) drawBanner(screen *ebiten.Image) {
 	}
 	centerText(screen, "棋局結束", cx, cy-26, colWhite)
 	centerText(screen, winLine+"（"+reasonZh(out.Reason)+"）", cx, cy+8, colWhite)
-	drawText(screen, "棋盤已鎖定　按 N 重新開始 或 L 載入棋譜",
-		cx-150, cy+34, colWhite)
+	drawText(screen, "棋盤已鎖定　按 N 重新開始　L 載入棋譜　Q 結束遊戲",
+		cx-180, cy+34, colWhite)
 }
 
 func (g *Game) Layout(int, int) (int, int) { return winW, winH }
