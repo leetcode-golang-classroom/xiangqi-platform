@@ -21,16 +21,18 @@ graph TD
     St --> Rec
     Human --> Eng
     AI --> Eng
-    Remote --> Tr["Transport (WebSocket)"]
-    Tr --> Hub["Server Hub / Room"]
+    Remote --> Tr["MoveTransport 介面 (player)"]
+    Tr -. 實作 .-> Lb["LoopbackTransport（本機回路）"]
+    Tr -. 實作 .-> Ws["WebSocket 傳輸 (階段3)"]
+    Ws --> Hub["Server Hub / Room (階段3)"]
     Hub --> Eng
 
     classDef core fill:#e3f2fd,stroke:#1565c0;
     classDef abst fill:#f3e5f5,stroke:#6a1b9a;
     classDef plat fill:#fff3e0,stroke:#e65100;
     class Bd,Eng,Nt,Rec,St,Sess,Ctl core;
-    class P,Human,AI,Remote abst;
-    class View,Tr,Hub plat;
+    class P,Human,AI,Remote,Tr abst;
+    class View,Lb,Ws,Hub plat;
 ```
 
 | 層 | 元件 | 套件路徑 | 可移植性 |
@@ -40,8 +42,9 @@ graph TD
 | 核心 | `Storage`（`Store` 介面） | `core/storage` | 介面契約（`FileStore` 為平台實作） |
 | 核心 | `Session` / `Controller`（對局狀態與統一迴圈） | `core/play` | 完全可移植（純邏輯） |
 | 抽象 | `Player`/`Interactive` 介面 + `Human` / `AI` | `player` | 取步者：介面與實作同處（階段 2） |
+| 抽象 | `MoveTransport` 接縫 + `RemotePlayer` + `LoopbackTransport`（本機回路） | `player` | 傳輸中立；回路供本機測試（階段 3 接縫） |
 | 平台 | `View`（Ebiten） | `cmd/xiangqi` | 平台相關（`//go:build ebiten`） |
-| 平台 | `Transport` / `Hub` | `server` | 協定契約（階段 3） |
+| 平台 | WebSocket 傳輸 / `Hub` | `server` | 協定契約（階段 3，正式線上） |
 
 > 依賴方向：`core/play`（Session/Controller）單向依賴 `player`（取步者抽象與實作）；`player` 不依賴 `core/play`，無 import cycle。「player」一詞統一指 `player` 套件。
 
