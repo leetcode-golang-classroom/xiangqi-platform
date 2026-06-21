@@ -55,6 +55,26 @@
 
 ---
 
+## 後續追加回合（2026-06-21～22，傳輸分層 L1／L2）
+
+承上同一 session，再進行一輪傳輸層工作：**L1 `LoopbackTransport` 介面骨架 + TDD 實作（含併發安全 close、`go test -race` 驗證）、傳輸分層設計文件補完（`online-play.md`／`DESIGN.md`）、gitmoji commit + archive（建立 `online-play` 能力 spec）+ push、GitHub Actions 觸發分支修正（main→master）+ push、L2 `add-websocket-transport` OpenSpec change 開立（proposal／tasks／design／spec，WebSocket 權威伺服器）+ commit、WebSocket 協定 envelope TDD 起頭（紅燈測試）**。
+
+| 類別 | Tokens | 費用 (USD) |
+|---|---:|---:|
+| Input（未快取） | 124,922 | $1.87 |
+| Cache write | 544,742 | $10.21 |
+| Cache read | 12,404,124 | $18.61 |
+| Output | 158,231 | $11.87 |
+| **本輪合計**（約 182 回合） | **≈ 13.2M** | **≈ $43** |
+
+≈ **NT$ 1,375**
+
+**session 累計（含本輪）**：≈ **322.4M** tokens、≈ **$781**（≈ NT$ 25,210）。
+
+> 本輪 cache read（$18.61）與 output（$11.87）合占近七成。相較前一輪（後續 145 回合 $54），本輪更省——多數產出集中在 spec／設計文件與少量 Go 程式，迭代回合短；spec-first 讓實作一次到位、少走回頭路，也降低了重複帶入長上下文的成本。
+
+---
+
 ## 依功能分析
 
 | 功能 | 回合 | 產出 tok | 總 tok | 費用 (USD) |
@@ -98,4 +118,4 @@
 
 ---
 
-_最後更新：2026-06-21_
+_最後更新：2026-06-22_
