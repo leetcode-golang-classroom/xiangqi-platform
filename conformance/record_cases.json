@@ -1,0 +1,12 @@
+{
+  "description": "棋譜重放：由 initialFen 依序套用 moves(UCCI)，最終盤面應等於 finalFen。",
+  "cases": [
+    {
+      "name": "open-with-central-cannon",
+      "comment": "炮二平五：紅炮 h2→e2",
+      "initialFen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+      "moves": ["h2e2"],
+      "finalFen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C2C4/9/RNBAKABNR b - - 1 1"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "description": "中文縱線記譜：由 fen 對 move(UCCI) 產生中文記譜字串。",
+  "cases": [
+    {
+      "name": "red-cannon-center",
+      "comment": "開局炮二平五（紅炮 h2→e2）",
+      "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+      "move": "h2e2",
+      "chinese": "炮二平五"
+    },
+    {
+      "name": "red-horse-advance",
+      "comment": "馬八進七（紅馬 b0→c2）；馬接目標縱線",
+      "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+      "move": "b0c2",
+      "chinese": "馬八進七"
+    },
+    {
+      "name": "red-rook-advance-steps",
+      "comment": "車九進二（紅車 a0→a2）；車進接步數",
+      "fen": "3k5/9/9/9/9/9/9/9/9/R3K4 w - - 0 1",
+      "move": "a0a2",
+      "chinese": "車九進二"
+    },
+    {
+      "name": "red-rook-retreat-steps",
+      "comment": "車九退二（紅車 a2→a0）",
+      "fen": "3k5/9/9/9/9/9/9/R8/9/4K4 w - - 0 1",
+      "move": "a2a0",
+      "chinese": "車九退二"
+    },
+    {
+      "name": "black-cannon-horizontal",
+      "comment": "砲8平5（黑砲 h7→e7）；黑方用阿拉伯數字",
+      "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR b - - 0 1",
+      "move": "h7e7",
+      "chinese": "砲8平5"
+    },
+    {
+      "name": "red-front-rook-advance",
+      "comment": "兩紅車同在 a 線(a0、a3)；較前者 a3 進二至 a5 → 前車進二（以前/後取代縱線數）",
+      "fen": "5k3/9/9/9/9/9/R8/9/9/R3K4 w - - 0 1",
+      "move": "a3a5",
+      "chinese": "前車進二"
+    }
+  ]
+}

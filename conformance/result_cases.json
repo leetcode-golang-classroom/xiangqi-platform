@@ -1,0 +1,34 @@
+{
+  "description": "對局結果判定。winner 為 red/black，未結束或和局為空字串。",
+  "cases": [
+    {
+      "name": "startpos-ongoing",
+      "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+      "result": { "over": false, "winner": "", "reason": "" }
+    },
+    {
+      "name": "rook-checkmate",
+      "comment": "黑將 e9 被 a9 車將軍；d9/f9 被同線控制，e8 因將帥照面不可走 → 將死",
+      "fen": "R3k4/9/9/9/9/9/9/9/9/4K4 b - - 0 1",
+      "result": { "over": true, "winner": "red", "reason": "checkmate" }
+    },
+    {
+      "name": "natural-limit-draw",
+      "comment": "halfmove 達自然限著上限(120)、尚有合法走法 → 判和（無勝方）",
+      "fen": "3k5/9/9/9/9/2R6/9/9/9/4K4 w - - 120 80",
+      "result": { "over": true, "winner": "", "reason": "natural_limit" }
+    },
+    {
+      "name": "stalemate-loss",
+      "comment": "黑僅餘將 d9，未被將軍：d8 被 a8 車控、e9 被 e0 車控 → 無合法走法 → 困斃判負",
+      "fen": "3k5/R8/9/9/9/9/9/9/9/4RK3 b - - 0 1",
+      "result": { "over": true, "winner": "red", "reason": "stalemate" }
+    },
+    {
+      "name": "black-in-check-ongoing",
+      "comment": "黑將 e9 被 e0 車將軍，但可走 d9 或 f9 應將 → 對局未結束",
+      "fen": "4k4/9/9/9/9/9/9/9/9/K3R4 b - - 0 1",
+      "result": { "over": false, "winner": "", "reason": "" }
+    }
+  ]
+}

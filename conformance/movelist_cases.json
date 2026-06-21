@@ -1,0 +1,12 @@
+{
+  "description": "中文記譜清單：由 initialFen 重放 moves(UCCI)，逐手轉成中文記譜。",
+  "cases": [
+    {
+      "name": "open-cannon-then-horse",
+      "comment": "炮二平五 後 馬8進7（黑馬 h9→g7）",
+      "initialFen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+      "moves": ["h2e2", "h9g7"],
+      "chinese": ["炮二平五", "馬8進7"]
+    }
+  ]
+}

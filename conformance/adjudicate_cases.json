@@ -1,0 +1,19 @@
+{
+  "description": "特殊裁定：重放走法序列後的結果（長將判負等）。",
+  "cases": [
+    {
+      "name": "red-perpetual-check-loses",
+      "comment": "紅車在 e/f 線間連續將軍黑將，黑將往返；三次重複局面 → 紅長將判負",
+      "initialFen": "4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1",
+      "moves": ["e9f9", "e1f1", "f9e9", "f1e1", "e9f9", "e1f1", "f9e9", "f1e1"],
+      "result": { "over": true, "winner": "black", "reason": "perpetual_check" }
+    },
+    {
+      "name": "repetition-draw-no-checks",
+      "comment": "雙方各自往返移子(紅車 a 線、黑車 i 線)，無連將；同一局面重複三次 → 判和",
+      "initialFen": "5k2r/9/9/9/9/9/9/9/9/R2K5 w - - 0 1",
+      "moves": ["a0a1", "i9i8", "a1a0", "i8i9", "a0a1", "i9i8", "a1a0", "i8i9"],
+      "result": { "over": true, "winner": "", "reason": "repetition_draw" }
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "description": "指定盤面下，從 from 格出發的所有合法走法（UCCI）。expected 為集合（順序不拘）。",
+  "cases": [
+    {
+      "name": "rook-on-open-board",
+      "comment": "車在 c4，沿 c 直線與第 4 橫線全部可走；兩將不同列不照面",
+      "fen": "3k5/9/9/9/9/2R6/9/9/9/4K4 w - - 0 1",
+      "from": "c4",
+      "expected": [
+        "c4c0", "c4c1", "c4c2", "c4c3", "c4c5", "c4c6", "c4c7", "c4c8", "c4c9",
+        "c4a4", "c4b4", "c4d4", "c4e4", "c4f4", "c4g4", "c4h4", "c4i4"
+      ]
+    },
+    {
+      "name": "horse-no-block",
+      "comment": "馬在 e4，無蹩馬腿，八方皆可；兩將不同列",
+      "fen": "5k3/9/9/9/9/4N4/9/9/9/3K5 w - - 0 1",
+      "from": "e4",
+      "expected": [
+        "e4d6", "e4f6", "e4d2", "e4f2", "e4c5", "e4g5", "e4c3", "e4g3"
+      ]
+    },
+    {
+      "name": "horse-leg-blocked",
+      "comment": "e5 有子蹩住，往上兩步的 d6/f6 被封，其餘六方可走",
+      "fen": "5k3/9/9/9/4p4/4N4/9/9/9/3K5 w - - 0 1",
+      "from": "e4",
+      "expected": [
+        "e4d2", "e4f2", "e4c5", "e4g5", "e4c3", "e4g3"
+      ]
+    },
+    {
+      "name": "cannon-move-and-capture",
+      "comment": "炮在 e4：沿線無子當作直走；隔一個炮架(e6)可吃 e8 黑兵",
+      "fen": "8k/4p4/9/4P4/9/4C4/9/9/9/K8 w - - 0 1",
+      "from": "e4",
+      "expected": [
+        "e4e5", "e4e3", "e4e2", "e4e1", "e4e0",
+        "e4a4", "e4b4", "e4c4", "e4d4", "e4f4", "e4g4", "e4h4", "e4i4",
+        "e4e8"
+      ]
+    },
+    {
+      "name": "advisor-in-palace",
+      "comment": "仕在 e1，斜走四角皆在九宮內（紅帥 e0 不擋對角）",
+      "fen": "3k5/9/9/9/9/9/9/9/4A4/4K4 w - - 0 1",
+      "from": "e1",
+      "expected": ["e1d0", "e1f0", "e1d2", "e1f2"]
+    },
+    {
+      "name": "elephant-no-block",
+      "comment": "相在 e2，田字四方、不過河、象眼皆空",
+      "fen": "5k3/9/9/9/9/9/9/4B4/9/3K5 w - - 0 1",
+      "from": "e2",
+      "expected": ["e2g4", "e2c4", "e2g0", "e2c0"]
+    },
+    {
+      "name": "elephant-eye-blocked",
+      "comment": "d3 塞象眼，封住往 c4 的一條田",
+      "fen": "5k3/9/9/9/9/9/3p5/4B4/9/3K5 w - - 0 1",
+      "from": "e2",
+      "expected": ["e2g4", "e2g0", "e2c0"]
+    },
+    {
+      "name": "king-in-palace",
+      "comment": "帥在 e1，直走四方皆在九宮內（黑將遠在 a9，不照面）",
+      "fen": "k8/9/9/9/9/9/9/9/4K4/9 w - - 0 1",
+      "from": "e1",
+      "expected": ["e1d1", "e1f1", "e1e0", "e1e2"]
+    },
+    {
+      "name": "pawn-before-river",
+      "comment": "兵在 e3 未過河，僅可前進",
+      "fen": "5k3/9/9/9/9/9/4P4/9/9/3K5 w - - 0 1",
+      "from": "e3",
+      "expected": ["e3e4"]
+    },
+    {
+      "name": "pawn-after-river",
+      "comment": "兵在 e5 已過河，可前進與左右",
+      "fen": "5k3/9/9/9/4P4/9/9/9/9/3K5 w - - 0 1",
+      "from": "e5",
+      "expected": ["e5e6", "e5d5", "e5f5"]
+    },
+    {
+      "name": "flying-general-forbids-king-move",
+      "comment": "紅帥 d0、黑將 e9：帥往 e0 會與黑將於 e 線照面（飛將）→ 非法；唯一合法為 d1",
+      "fen": "4k4/9/9/9/9/9/9/9/9/3K5 w - - 0 1",
+      "from": "d0",
+      "expected": ["d0d1"]
+    },
+    {
+      "name": "pin-rook-no-horizontal",
+      "comment": "紅車 a3 夾在紅帥 a0 與黑車 a9 間被牽制；橫移暴露飛將／被將 → 僅可沿 a 線（含吃 a9）",
+      "fen": "r8/9/9/9/9/9/R8/9/9/K8 w - - 0 1",
+      "from": "a3",
+      "expected": ["a3a1", "a3a2", "a3a4", "a3a5", "a3a6", "a3a7", "a3a8", "a3a9"]
+    }
+  ]
+}
