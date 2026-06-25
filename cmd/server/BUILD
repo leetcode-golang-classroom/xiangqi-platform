@@ -8,7 +8,7 @@ go_binary(
 )
 
 run_shell_command(
-    name="server",
+    name="run",
     command="go run ./cmd/server",
     workdir="/",
 )

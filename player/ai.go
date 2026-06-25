@@ -18,10 +18,13 @@ const (
 )
 
 const (
-	mateScore   = 1_000_000 // 將死分值（含步數修正，偏好較快將死）
-	infScore    = 1 << 30   // alpha-beta 邊界（可安全取負）
-	qMaxPly     = 64        // 靜默搜尋遞迴上限（保險，吃子序列本就收斂）
-	nearBestEps = 16        // near-best 容差：與最佳分相差 ≤ 此值者視為近佳手（< 兵值 100）
+	mateScore        = 1_000_000 // 將死分值（含步數修正，偏好較快將死）
+	infScore         = 1 << 30   // alpha-beta 邊界（可安全取負）
+	qMaxPly          = 64        // 靜默搜尋遞迴上限（保險，吃子序列本就收斂）
+	nearBestEps      = 16        // near-best 容差：與最佳分相差 ≤ 此值者視為近佳手（< 兵值 100）
+	maxCheckExt      = 1         // 將軍延伸累計上限：防止搜尋樹無限膨脹
+	killerSlots      = 2         // 每個 ply 保留的 killer move 數量
+	killerMaxPly     = 128       // killer 表最大深度（含延伸後的 ply 上限）
 )
 
 // pieceValue 為各棋子的子力價值（以 kind 的小寫位元組索引）。
@@ -107,9 +110,10 @@ func pstValue(p board.Piece, sq board.Square) int {
 
 // AI 以 negamax + alpha-beta 搜尋實作 Player。
 type AI struct {
-	Depth  int             // 搜尋深度（難度）
-	visits map[string]int  // 對局中各盤面（盤面+輪走方）的造訪次數，供重複局面變招
-	pick   func(n int) int // 從 n 個近佳手中挑一個的索引；nil 時用 visits 輪替（可重現）
+	Depth   int                          // 搜尋深度（難度）
+	visits  map[string]int               // 對局中各盤面（盤面+輪走方）的造訪次數，供重複局面變招
+	pick    func(n int) int              // 從 n 個近佳手中挑一個的索引；nil 時用 visits 輪替（可重現）
+	killers [killerMaxPly][killerSlots]board.Move // killer move 表：非吃子卻造成 beta cutoff 的著手
 }
 
 // NewAI 以難度（搜尋深度）建立 AI；深度至少為 1。
@@ -148,6 +152,8 @@ func difficultyLabel(depth int) string {
 func (a *AI) RequestMove(g *rules.Game) <-chan board.Move {
 	ch := make(chan board.Move, 1)
 	go func() {
+		// 每次搜尋前清除 killer 表，避免上回搜尋殘留干擾新局面
+		a.killers = [killerMaxPly][killerSlots]board.Move{}
 		if m, err := a.SelectMove(g); err == nil {
 			ch <- m
 		}
@@ -182,7 +188,7 @@ func (a *AI) SelectMove(g *rules.Game) (board.Move, error) {
 		if best == -infScore {
 			lower = -infScore
 		}
-		s := -a.negamax(ng, a.Depth-1, -infScore, -lower, 1)
+		s := -a.negamax(ng, a.Depth-1, -infScore, -lower, 1, 0)
 		if s > best {
 			best = s
 		}
@@ -233,23 +239,37 @@ func posKey(g *rules.Game) string {
 	return g.ToFEN()
 }
 
-// negamax 以行棋方視角回傳盤面評分（含 alpha-beta 剪枝）；深度耗盡時以靜默搜尋收斂。
-func (a *AI) negamax(g *rules.Game, depth, alpha, beta, ply int) int {
-	if s, ok := terminalScore(g, ply); ok {
-		return s
+// negamax 以行棋方視角回傳盤面評分（含 alpha-beta 剪枝、將軍延伸、killer moves）。
+// extensions 為本路徑已累計的將軍延伸次數，防止無限膨脹。
+func (a *AI) negamax(g *rules.Game, depth, alpha, beta, ply, extensions int) int {
+	// 自然限著（不需要 LegalMoves）：無吃子 120 半步判和。
+	if g.AtNaturalLimit() {
+		return 0
+	}
+	// 呼叫 LegalMoves 一次，同時用於終局偵測與著手迭代。
+	moves := g.LegalMoves()
+	if len(moves) == 0 {
+		if g.InCheck() {
+			return -mateScore + ply // 將死：越快越糟
+		}
+		return 0 // 困斃（和棋）
 	}
 	if depth == 0 {
 		return a.quiesce(g, alpha, beta, ply)
 	}
-	moves := g.LegalMoves()
-	orderMoves(g, moves)
+	a.orderMovesKiller(g, moves, ply)
 	best := -infScore
 	for _, m := range moves {
 		ng, err := g.ApplyMove(m)
 		if err != nil {
 			continue
 		}
-		score := -a.negamax(ng, depth-1, -beta, -alpha, ply+1)
+		// 將軍延伸：走後對方被將軍 → depth+1，但整條路徑總延伸次數不超過 maxCheckExt。
+		ext := 0
+		if extensions < maxCheckExt && ng.InCheck() {
+			ext = 1
+		}
+		score := -a.negamax(ng, depth-1+ext, -beta, -alpha, ply+1, extensions+ext)
 		if score > best {
 			best = score
 		}
@@ -257,17 +277,27 @@ func (a *AI) negamax(g *rules.Game, depth, alpha, beta, ply int) int {
 			alpha = best
 		}
 		if alpha >= beta {
-			break // beta 剪枝
+			// Beta 剪枝：若為非吃子著手，記入 killer 表供兄弟節點優先嘗試。
+			if g.PieceAt(m.To).IsEmpty() && ply < killerMaxPly {
+				a.killers[ply][1] = a.killers[ply][0]
+				a.killers[ply][0] = m
+			}
+			break
 		}
 	}
 	return best
 }
 
-// quiesce 為靜默搜尋：在搜尋深度上限沿吃子序列延伸至安定再評估，消除視界效應（送子/壞兌）。
-// 以 stand-pat（靜態評估）為下限，僅延伸吃子著手；吃子使子力嚴格遞減故必收斂。
+// quiesce 為靜默搜尋：在搜尋深度上限沿吃子序列延伸至安定再評估，消除視界效應。
+// 以 stand-pat（靜態評估）為下限；只展開吃子，確保序列嚴格收斂、不爆搜尋量。
 func (a *AI) quiesce(g *rules.Game, alpha, beta, ply int) int {
-	if s, ok := terminalScore(g, ply); ok {
-		return s
+	// 呼叫一次 LegalMoves，同時用於終局偵測與吃子篩選，避免重複計算。
+	all := g.LegalMoves()
+	if len(all) == 0 {
+		if g.InCheck() {
+			return -mateScore + ply
+		}
+		return 0 // 困斃（和棋）
 	}
 	stand := evaluate(g)
 	if ply >= qMaxPly {
@@ -279,9 +309,10 @@ func (a *AI) quiesce(g *rules.Game, alpha, beta, ply int) int {
 	if stand > alpha {
 		alpha = stand
 	}
-	caps := captureMoves(g)
-	orderMoves(g, caps)
-	for _, m := range caps {
+	for _, m := range all {
+		if g.PieceAt(m.To).IsEmpty() {
+			continue // 只搜吃子著手
+		}
 		ng, err := g.ApplyMove(m)
 		if err != nil {
 			continue
@@ -297,40 +328,44 @@ func (a *AI) quiesce(g *rules.Game, alpha, beta, ply int) int {
 	return alpha
 }
 
-// terminalScore 回傳終局分值與是否終局：將死/困斃為行棋方必負（越快越糟），和棋為 0。
-func terminalScore(g *rules.Game, ply int) (int, bool) {
-	res := g.Result()
-	if !res.Over {
-		return 0, false
-	}
-	switch res.Reason {
-	case "checkmate", "stalemate":
-		return -mateScore + ply, true
-	default:
-		return 0, true // 和棋（重複/自然限著）
-	}
-}
-
-// captureMoves 回傳當前所有「吃子」合法著手（落點有敵子）。
-func captureMoves(g *rules.Game) []board.Move {
-	var caps []board.Move
-	for _, m := range g.LegalMoves() {
-		if !g.PieceAt(m.To).IsEmpty() {
-			caps = append(caps, m)
-		}
-	}
-	return caps
-}
-
-// orderMoves 就地排序：吃子優先（MVV-LVA，受吃子大者優先、攻擊子小者優先），
-// 其餘次之；同鍵以 UCCI 字串排序以維持可重現。僅影響剪枝效率與遍歷順序，不改變分值結論。
+// orderMoves 就地排序：吃子優先（MVV-LVA），其餘按 UCCI 排序以維持可重現。
 func orderMoves(g *rules.Game, moves []board.Move) {
 	slices.SortFunc(moves, func(x, y board.Move) int {
 		if kx, ky := moveOrderKey(g, x), moveOrderKey(g, y); kx != ky {
-			return ky - kx // 鍵大者優先
+			return ky - kx
 		}
 		return strings.Compare(x.String(), y.String())
 	})
+}
+
+// orderMovesKiller 就地排序：吃子（MVV-LVA）→ killer moves → 其餘（UCCI 序）。
+// killer moves 讓造成過 beta cutoff 的非吃子著手在兄弟節點提前被嘗試，改善剪枝效率。
+func (a *AI) orderMovesKiller(g *rules.Game, moves []board.Move, ply int) {
+	slices.SortFunc(moves, func(x, y board.Move) int {
+		kx := a.killerOrderKey(g, x, ply)
+		ky := a.killerOrderKey(g, y, ply)
+		if kx != ky {
+			return ky - kx
+		}
+		return strings.Compare(x.String(), y.String())
+	})
+}
+
+// killerOrderKey 回傳含 killer 優先級的排序鍵：
+// 吃子（MVV-LVA 加大偏移）> killer[0] > killer[1] > 其他非吃子。
+func (a *AI) killerOrderKey(g *rules.Game, m board.Move, ply int) int {
+	if !g.PieceAt(m.To).IsEmpty() {
+		return moveOrderKey(g, m) + 100_000 // 吃子永遠排在非吃子前
+	}
+	if ply < killerMaxPly {
+		if m == a.killers[ply][0] {
+			return 50_000
+		}
+		if m == a.killers[ply][1] {
+			return 49_999
+		}
+	}
+	return 0
 }
 
 // moveOrderKey 為走法排序鍵：吃子為「受吃子值×16 − 攻擊子值」（MVV-LVA），非吃子為 0。

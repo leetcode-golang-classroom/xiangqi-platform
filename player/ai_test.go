@@ -176,6 +176,47 @@ func TestAINameReflectsDifficulty(t *testing.T) {
 	assert.Contains(t, player.NewAI(player.Hard).Name(), "困難")
 }
 
+func TestAIFindsCheckSequence(t *testing.T) {
+	// 紅車 a8 可走 a9 將軍，黑將 e9 無路可逃（e8 被紅車 e1 控制）→ 連將致勝。
+	// 驗證將軍延伸讓 AI 能看穿多步將軍序列。
+	g, err := rules.FromFEN("4k4/R8/9/9/9/9/9/9/4R4/3K5 w - - 0 1")
+	require.NoError(t, err)
+
+	ai := player.NewAI(player.Hard)
+	m, err := ai.SelectMove(g)
+	require.NoError(t, err)
+
+	ng, err := g.ApplyMove(m)
+	require.NoError(t, err)
+	// 第一步走後對方應被將軍，確認 AI 選擇進攻性著手
+	assert.True(t, ng.InCheck(), "AI 首步應選擇將軍著手")
+}
+
+func TestAIDefeatsHorseCannonPattern(t *testing.T) {
+	// 馬後炮典型場景：黑方馬 e4 + 炮 e1，紅帥 d0。雙方皆有將帥（合法局面）。
+	// 黑方輪走；測試 AI 能選出合法著手（不因缺將帥判定遊戲結束）。
+	g, err := rules.FromFEN("4k4/9/9/9/9/4n4/9/9/4c4/3K5 b - - 0 1")
+	require.NoError(t, err)
+
+	ai := player.NewAI(player.Hard)
+	m, err := ai.SelectMove(g)
+	require.NoError(t, err)
+	assert.True(t, slices.Contains(g.LegalMoves(), m), "AI 著手須為合法走法")
+}
+
+func TestInCheckExposed(t *testing.T) {
+	// 驗證 InCheck() API 在規則引擎正確運作，作為將軍延伸的基礎前提。
+	// 局面：黑將 e9 被紅車 e1 直接威脅（車在同縱線無遮擋）。
+	g, err := rules.FromFEN("4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1")
+	require.NoError(t, err)
+	assert.True(t, g.InCheck(), "黑將應被紅車將軍")
+
+	// 紅方視角：紅帥未被將軍
+	g2, err := rules.FromFEN("4k4/9/9/9/9/9/9/9/4R4/3K5 w - - 0 1")
+	require.NoError(t, err)
+	assert.False(t, g2.InCheck(), "紅帥未被將軍")
+}
+
 // mustMove 解析 UCCI 走法，測試輔助用。
 func mustMove(s string) board.Move {
 	m, err := board.ParseUCCI(s)

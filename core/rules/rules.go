@@ -10,10 +10,14 @@ package rules
 import (
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/yuanyu90221/xiangqi-platform/core/board"
 	"github.com/yuanyu90221/xiangqi-platform/core/notation"
 )
+
+// boardPool 複用 Board 物件，避免 LegalMoves 每個擬合法著手都做 heap 分配。
+var boardPool = sync.Pool{New: func() any { return &board.Board{} }}
 
 const startposFEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
 
@@ -63,6 +67,10 @@ func (g *Game) LegalMoves() []board.Move {
 	if g.board == nil {
 		return nil
 	}
+	// 從 pool 借一塊 Board 作為走子暫存，避免每個擬合法著手都做 heap 分配。
+	tmp := boardPool.Get().(*board.Board)
+	defer boardPool.Put(tmp)
+
 	var moves []board.Move
 	for s := board.Square(0); s < board.NumSquares; s++ {
 		p := g.board.Get(s)
@@ -70,9 +78,11 @@ func (g *Game) LegalMoves() []board.Move {
 			continue
 		}
 		for _, to := range pseudoTargets(g.board, s) {
-			m := board.Move{From: s, To: to}
-			if !inCheck(applied(g.board, m), g.turn) {
-				moves = append(moves, m)
+			*tmp = *g.board // 複製 90 bytes（無 heap 分配）
+			tmp.Set(to, p)
+			tmp.Set(s, board.Empty)
+			if !inCheck(tmp, g.turn) {
+				moves = append(moves, board.Move{From: s, To: to})
 			}
 		}
 	}
@@ -127,6 +137,24 @@ func (g *Game) Result() Result {
 		return Result{Over: true, Reason: "natural_limit"} // 和棋，無勝方
 	}
 	return Result{Over: false}
+}
+
+// InCheck 回傳目前輪走方是否處於被將軍狀態。
+func (g *Game) InCheck() bool {
+	return inCheck(g.board, g.turn)
+}
+
+// AtNaturalLimit 回傳是否已達無吃子限著上限（和棋），不需呼叫 LegalMoves。
+func (g *Game) AtNaturalLimit() bool {
+	return g.halfmove >= NaturalLimitPlies
+}
+
+// PseudoTargets 回傳指定格的擬合法目的格（棋子移動規則，不過濾自將）。供測試用。
+func (g *Game) PseudoTargets(sq board.Square) []board.Square {
+	if g.board == nil {
+		return nil
+	}
+	return pseudoTargets(g.board, sq)
 }
 
 // positionKey 回傳僅含盤面與輪走方的鍵（忽略計步），供重複局面偵測。
