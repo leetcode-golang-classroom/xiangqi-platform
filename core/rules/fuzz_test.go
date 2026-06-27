@@ -2,8 +2,8 @@ package rules_test
 
 import (
 	"fmt"
-	"testing"
 	"github.com/yuanyu90221/xiangqi-platform/core/rules"
+	"testing"
 )
 
 // TestNoKingCapturePossibleInLegalMoves 用多條路徑搜尋是否存在「合法走法可吃將帥」的局面

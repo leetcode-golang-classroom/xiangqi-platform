@@ -63,7 +63,6 @@ func kingSquareOf(g *rules.Game, c board.Color) board.Square {
 	return board.InvalidSquare
 }
 
-
 // bruteForceInCheck 用暴力法判斷 c 方是否被將軍。
 // 做法：枚舉對手每個棋子的擬合法目的格（PseudoTargets，不過濾自將），
 // 若任何目的格等於 c 方主將的位置 → 被將軍。
@@ -99,8 +98,8 @@ func bruteForceInCheck(g *rules.Game, c board.Color) bool {
 // 在每一局面比對 g.InCheck() 與 bruteForceInCheck 的結果是否一致。
 func TestInCheckConsistencyVsBruteForce(t *testing.T) {
 	const (
-		numGames  = 100
-		maxPlies  = 150
+		numGames = 100
+		maxPlies = 150
 	)
 
 	type mismatch struct {
@@ -263,11 +262,11 @@ func TestHalfmoveResetInfiniteLoop(t *testing.T) {
 	// 走 4 步，觀察 halfmove 計數器在 FEN 中的變化
 	// 預期：紅王走（非兵非吃子）→ halfmove 累加；黑兵移動 → halfmove 歸零
 	type step struct {
-		move       string
+		move        string
 		fenContains string // 期望 FEN 中含有此 halfmove 值
-		isPawn     bool
+		isPawn      bool
 	}
-	g1, _ := g.ApplyMove(g.LegalMoves()[0]) // 紅王走：f0e0，halfmove 應從 0→1
+	g1, _ := g.ApplyMove(g.LegalMoves()[0])   // 紅王走：f0e0，halfmove 應從 0→1
 	g2, _ := g1.ApplyMove(g1.LegalMoves()[0]) // 黑兵走：h0i0，halfmove 應從 1→0（兵走重置）
 	g3, _ := g2.ApplyMove(g2.LegalMoves()[0]) // 紅王走：e0f0，halfmove 應從 0→1
 	g4, _ := g3.ApplyMove(g3.LegalMoves()[0]) // 黑兵走：i0h0，halfmove 應從 1→0
@@ -422,8 +421,8 @@ func TestInCheckSpecificPositions(t *testing.T) {
 			// 兩王不對面（黑將在 e9，紅帥在 d0，不同縱線）
 			// 黑馬在 f0，跳到 d0 需要 df=-2,dr=0（非日字步法）→ 不能將
 			// 且腿方向全部越界或被遮，應無將軍
-			name:      "horse_at_f0_cannot_check_d0",
-			fen:       "4k4/9/9/9/9/9/9/9/9/3Kn4 w - - 0 1",
+			name: "horse_at_f0_cannot_check_d0",
+			fen:  "4k4/9/9/9/9/9/9/9/9/3Kn4 w - - 0 1",
 			// 黑馬 f0(5,0) 日字跳目標：(4,2),(6,2),(3,1),(7,1)等
 			// 沒有一個是 d0(3,0)；且兩王不同縱線（黑將在 e9，紅帥在 d0）
 			wantCheck: false,
@@ -484,19 +483,20 @@ func TestInCheckSpecificPositions(t *testing.T) {
 // TestHorseCheckBugRegression 針對已知的馬蹩馬腿方向判斷錯誤進行回歸測試。
 //
 // BUG 說明（movegen.go inCheck 函數）：
-//   inCheck 使用反向掃描法判斷馬是否將軍。
-//   對於每個可能攻擊主將的馬位置，它檢查「蹩馬腿」是否被封鎖。
-//   但 horseCands 中的蹩馬腿偏移量 (lf, lr) 使用的是「從主將位置出發」的方向，
-//   與正確的「從馬的位置出發」的腿方向不符。
 //
-//   正向：馬在 H=(hf,hr)，跳到 T=H+(df,dr)，腿在 H+(lf,lr)。
-//   逆向（從主將 K=T 找馬）：馬在 H=K+(-df,-dr)，腿在 H+(lf,lr)=K+(lf-df, lr-dr)。
-//   但 inCheck 錯誤地將腿設在 K+(lf, lr)（沒有 -df/-dr 修正）。
+//	inCheck 使用反向掃描法判斷馬是否將軍。
+//	對於每個可能攻擊主將的馬位置，它檢查「蹩馬腿」是否被封鎖。
+//	但 horseCands 中的蹩馬腿偏移量 (lf, lr) 使用的是「從主將位置出發」的方向，
+//	與正確的「從馬的位置出發」的腿方向不符。
 //
-//   已驗證的錯誤局面：
-//   FEN: 4k1b1c/4a4/5a3/2C5r/P1p1P4/9/2Cp1n3/N3B4/4Kc1N1/3A1AB2 w - - 1 64
-//   黑馬在 f3，腿在 f2（空），可將紅帥 e1。
-//   但 inCheck 錯誤地檢查腿在 e2（有紅象），誤判為不能將。
+//	正向：馬在 H=(hf,hr)，跳到 T=H+(df,dr)，腿在 H+(lf,lr)。
+//	逆向（從主將 K=T 找馬）：馬在 H=K+(-df,-dr)，腿在 H+(lf,lr)=K+(lf-df, lr-dr)。
+//	但 inCheck 錯誤地將腿設在 K+(lf, lr)（沒有 -df/-dr 修正）。
+//
+//	已驗證的錯誤局面：
+//	FEN: 4k1b1c/4a4/5a3/2C5r/P1p1P4/9/2Cp1n3/N3B4/4Kc1N1/3A1AB2 w - - 1 64
+//	黑馬在 f3，腿在 f2（空），可將紅帥 e1。
+//	但 inCheck 錯誤地檢查腿在 e2（有紅象），誤判為不能將。
 func TestHorseCheckBugRegression(t *testing.T) {
 	cases := []struct {
 		name      string

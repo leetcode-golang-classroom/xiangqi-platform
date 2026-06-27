@@ -18,13 +18,13 @@ const (
 )
 
 const (
-	mateScore        = 1_000_000 // 將死分值（含步數修正，偏好較快將死）
-	infScore         = 1 << 30   // alpha-beta 邊界（可安全取負）
-	qMaxPly          = 64        // 靜默搜尋遞迴上限（保險，吃子序列本就收斂）
-	nearBestEps      = 16        // near-best 容差：與最佳分相差 ≤ 此值者視為近佳手（< 兵值 100）
-	maxCheckExt      = 1         // 將軍延伸累計上限：防止搜尋樹無限膨脹
-	killerSlots      = 2         // 每個 ply 保留的 killer move 數量
-	killerMaxPly     = 128       // killer 表最大深度（含延伸後的 ply 上限）
+	mateScore    = 1_000_000 // 將死分值（含步數修正，偏好較快將死）
+	infScore     = 1 << 30   // alpha-beta 邊界（可安全取負）
+	qMaxPly      = 64        // 靜默搜尋遞迴上限（保險，吃子序列本就收斂）
+	nearBestEps  = 16        // near-best 容差：與最佳分相差 ≤ 此值者視為近佳手（< 兵值 100）
+	maxCheckExt  = 1         // 將軍延伸累計上限：防止搜尋樹無限膨脹
+	killerSlots  = 2         // 每個 ply 保留的 killer move 數量
+	killerMaxPly = 128       // killer 表最大深度（含延伸後的 ply 上限）
 )
 
 // pieceValue 為各棋子的子力價值（以 kind 的小寫位元組索引）。
@@ -110,9 +110,9 @@ func pstValue(p board.Piece, sq board.Square) int {
 
 // AI 以 negamax + alpha-beta 搜尋實作 Player。
 type AI struct {
-	Depth   int                          // 搜尋深度（難度）
-	visits  map[string]int               // 對局中各盤面（盤面+輪走方）的造訪次數，供重複局面變招
-	pick    func(n int) int              // 從 n 個近佳手中挑一個的索引；nil 時用 visits 輪替（可重現）
+	Depth   int                                   // 搜尋深度（難度）
+	visits  map[string]int                        // 對局中各盤面（盤面+輪走方）的造訪次數，供重複局面變招
+	pick    func(n int) int                       // 從 n 個近佳手中挑一個的索引；nil 時用 visits 輪替（可重現）
 	killers [killerMaxPly][killerSlots]board.Move // killer move 表：非吃子卻造成 beta cutoff 的著手
 }
 
