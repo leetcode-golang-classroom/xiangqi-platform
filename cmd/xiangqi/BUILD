@@ -6,6 +6,9 @@
 # Pants 的 Go 後端不支援自訂 build tag，故以 shell 目標包一層原生 `go` 指令：
 #   pants run cmd/xiangqi:build   # 編譯 GUI 二進位到 ./bin/xiangqi
 #   pants run cmd/xiangqi:gui     # 直接執行 GUI（需圖形環境）
+#
+# gui 指定 EGL_PLATFORM=x11：Wayland 桌面上 GLFW(X11) 的 EGL 會誤選 wayland 平台，
+# 在 glfwCreateWindow 內 SIGSEGV（wl_proxy_create_wrapper）。
 run_shell_command(
     name="build",
     command="go build -tags ebiten -o bin/xiangqi ./cmd/xiangqi && echo '✔ built bin/xiangqi'",
@@ -14,6 +17,6 @@ run_shell_command(
 
 run_shell_command(
     name="gui",
-    command="go run -tags ebiten ./cmd/xiangqi",
+    command="EGL_PLATFORM=x11 go run -tags ebiten ./cmd/xiangqi",
     workdir="/",
 )

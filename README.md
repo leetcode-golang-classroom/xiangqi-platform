@@ -73,6 +73,9 @@ go build -tags ebiten -o bin/xiangqi ./cmd/xiangqi   # 編譯 GUI 到 bin/
 go run -tags ebiten ./cmd/xiangqi                    # 啟動 GUI（需圖形環境）
 ```
 
+> Linux Wayland 桌面若出現 `SIGSEGV ... glfwCreateWindow`，請加 `EGL_PLATFORM=x11`
+> （`pants run cmd/xiangqi:gui` 已內建）：`EGL_PLATFORM=x11 go run -tags ebiten ./cmd/xiangqi`。
+
 > **Ebiten 渲染層以建構標籤隔離**：`cmd/xiangqi` 原始碼帶 `//go:build ebiten`，
 > 故預設建構/測試（含無頭 CI、`pants test ::`）不編譯圖形相依；對局邏輯全在純邏輯
 > 控制器 `core/play.Session`，可獨立單元測試。GUI 僅在 `-tags ebiten` 時編譯，需顯示
